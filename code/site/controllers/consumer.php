@@ -7,7 +7,4 @@
  * @link        http://www.joocode.com
  */
 
-class ComOauthserverControllerConsumer extends ComDefaultControllerDefault 
-{
-	
-}
+class ComOauthserverControllerConsumer extends ComDefaultControllerDefault {}

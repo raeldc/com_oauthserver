@@ -12,121 +12,104 @@ class ComOauthserverControllerToken extends ComDefaultControllerDefault
 	protected function _actionRead()
 	{
 		$layout = KRequest::get('get.layout', 'string');
-		$view = KRequest::get('get.view', 'string');
 		
-		if ($view == 'oauth') 
-		{		
-			$layout = KRequest::get('get.layout', 'string');
-			KRequest::set('session.caller_url', JRoute::_(base64_decode(KRequest::get('get.caller_url', 'url'))));
-			KRequest::set('session.return_url', JRoute::_(base64_decode(KRequest::get('get.return_url', 'url'))));
-						
-			$user = KFactory::get('lib.joomla.user');
-			$url = '';
-		
-			if ($layout == 'add')
+		if ($layout == 'authorize')
+		{
+			$consumer_key = KRequest::get('get.client_id', 'string');
+			$redirect_uri = KRequest::get('get.redirect_uri', 'url');
+	
+			$consumer = KFactory::get('site::com.oauthserver.model.consumers')->set('consumer_key', $consumer_key)->getItem();
+			
+			if ($consumer->redirect_uri == $redirect_uri)
 			{
-				$url = JRoute::_('index.php?option=com_oauth&view='.KRequest::get('get.service', 'string').'&layout=redirect'); 
+				$oauthserver_consumer_id = KFactory::get('site::com.oauthserver.model.consumers')->set('consumer_key', $consumer_key)->getItem()->id;
+				
+				if (KFactory::get('site::com.oauthserver.model.authorizations')->set('userid', KFactory::get('lib.joomla.user')->id)->set('oauthserver_consumer_id', $oauthserver_consumer_id)->getTotal())
+				{			
+					$returnCode = 'ri2ri3jirj23';
+					$code = KFactory::get('site::com.oauthserver.model.codes')
+						->getItem()
+						->set('oauthserver_consumer_id', $oauthserver_consumer_id)
+						->set('code', $returnCode)
+						->save();
+					
+					KFactory::tmp('lib.joomla.application')->redirect($redirect_uri.(strpbrk($model->accessTokenURL(), '?') ? '&' : '?').'code='.$returnCode);	
+				}
+				else
+				{
+					//resource owner must authorize the client
+					KFactory::tmp('lib.joomla.application')->redirect('index.php?option=com_oauthserver&view=token&layout=default&client_id='.$consumer_key.'&redirect_uri='.urlencode($redirect_uri));					
+				}
 			}
 			else
 			{
-				$hasToken = false;		
-				
-				if ($user->id)
-				{
-					if (KFactory::tmp('site::com.oauth.model.tokens')
-						->set('service', KRequest::get('get.service', 'string'))
-						->set('userid', $user->id)
-						->getTotal())
-					{
-						$hasToken = true;
-					}
-				}
-				else
-				{
-					if (KRequest::get('session.service', 'string') == KRequest::get('get.service', 'string') && KRequest::get('session.oauth_token', 'string'))
-					{
-						$hasToken = true;
-					} 
-				}
-				
-				if ($hasToken)
-				{
-					$url = JRoute::_(base64_decode(KRequest::get('get.return_url', 'url')));
-				}
-				else
-				{	
-					$url = JRoute::_('index.php?option=com_oauth&view='.KRequest::get('get.service', 'string').'&layout=redirect'); 
-				}
+				echo 'ERRORCODE redirect_uri_mismatch';
+				exit();
 			}
-			
-			KFactory::tmp('lib.joomla.application')->redirect($url);
 		}
-		else
+		elseif ($layout == 'accesstoken')
 		{
-			if ($layout == 'redirect' || $layout == '')
-			{
-				$this->_processRedirect($layout, $view);
-			}
-			elseif ($layout == 'default')
-			{
-				$this->_processDefault($layout, $view);
-			}
-		
-		}
+			$consumer_key = KRequest::get('get.client_id', 'string');
+			$redirect_uri = KRequest::get('get.redirect_uri', 'url');
+			$consumer_secret = KRequest::get('get.client_secret', 'string');
+			$code= KRequest::get('get.code', 'string');
+
+			$oauthserver_consumer_id = KFactory::get('site::com.oauthserver.model.consumers')->set('consumer_key', $consumer_key)->getItem()->id;
 			
-		return parent::_actionRead();
-	}
+			if ($oauthserver_consumer_id) 
+			{
+				$isThereTheStoredCode = KFactory::get('site::com.oauthserver.model.codes')
+					->set('oauthserver_consumer_id', $oauthserver_consumer_id)
+					->set('code', $code)
+					->getTotal();
 	
-	/**
-	 * 
-	 * 
-	 * @param string $layout
-	 * @param string $view
-	 */
-	protected function _processDefault($layout, $view)
-	{
-		$site = KFactory::get('site::com.oauth.model.sites')->slug($view)->getItem();
-		
-		if (KRequest::get('session.request_token', 'raw') !== KRequest::get('request.oauth_token', 'raw')) 
-		{	
-			$app = KFactory::tmp('lib.joomla.application');
-			$url = KRequest::get('session.caller_url', 'string');
-			$message = 'Old Token';
-			$app->redirect($url, $message); 
+				//TODO: check that the authorization code is not expired (e.g. 3 minutes old)
+				//TODO: purge old authorization codes
+				
+				if ($isThereTheStoredCode)
+				{
+					$codeRow = KFactory::get('site::com.oauthserver.model.codes')
+					->set('oauthserver_consumer_id', $oauthserver_consumer_id)
+					->set('code', $code)
+					->getItem();
+
+					$accessToken = rand(); 
+					
+					KFactory::get('site::com.oauthserver.model.tokens')
+						->getItem()	
+						->set('oauthserver_consumer_id', $oauthserver_consumer_id)
+						->set('access_token', $accessToken)
+						->set('created_by', $codeRow->created_by)
+						->save();
+					
+					echo 'access_token='.$accessToken;
+					exit();
+				}
+				else
+				{
+					echo 'ERRORCODE invalid_request';
+					exit();	
+				}
+			}
+			else
+			{
+				echo 'ERRORCODE invalid_client';
+				exit();
+			}
 		}
-		else
-		{	
-			$model = KFactory::get('site::com.oauth.model.'.$view.'s');
-			$model->initialize(array($site->consumer_key, $site->consumer_secret));
-			$model->setToken(KRequest::get('get.oauth_token', 'raw'), KRequest::get('session.request_token_secret', 'raw'));
-		 	$model->storeToken($model->getAccessToken());   
-			$model->redirect();
-		}		
-	}
-		
-	/**
-	 * 
-	 * 
-	 * @param string $layout
-	 * @param string $view
-	 */
-	protected function _processRedirect($layout, $view)
-	{
-		$service = KFactory::get('site::com.oauth.model.sites')->slug($view)->getItem();
-		$model = KFactory::get('site::com.oauth.model.'.KInflector::pluralize($view));
-		$model->initialize(array($service->consumer_key, $service->consumer_secret));
-		 
-		if (!$service->title)
+		else 
 		{
-			echo 'Service not enabled';
-		}
-		else
-		{
-			/* Get temporary credentials. */
-			$request_token = $model->getRequestToken($model->requestTokenURL(), 'http://'.$_SERVER['HTTP_HOST'].JRoute::_('index.php?option=com_oauth&view='.$view.'&layout=default'));  
-			KRequest::set('session.request_token', $request_token['oauth_token']);
-			KRequest::set('session.request_token_secret', $request_token['oauth_token_secret']);
-			KFactory::tmp('lib.joomla.application')->redirect($model->authorizeURL().'?oauth_token='.$request_token['oauth_token']);
+			$consumer_key = KRequest::get('get.client_id', 'string', 'null');
+
+			if (KFactory::get('site::com.oauthserver.model.consumers')->set('consumer_key', $consumer_key)->getTotal())
+			{		
+				parent::_actionRead();	
+			}
+			else 
+			{
+				echo 'ERRORCODE invalid_client';
+				exit();
+			}
 		}
 	}
 }

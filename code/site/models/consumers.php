@@ -9,5 +9,10 @@
 
 class ComOauthserverModelConsumers extends KModelTable
 {
-	
+    public function __construct(KConfig $config) 
+	{
+		$config['table_behaviors'] = array('creatable'); 
+		
+		parent::__construct($config);
+	}
 }

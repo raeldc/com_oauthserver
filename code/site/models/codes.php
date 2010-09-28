@@ -7,7 +7,7 @@
  * @link        http://www.joocode.com
  */
 
-class ComOauthserverModelTokens extends KModelTable
+class ComOauthserverModelCodes extends KModelTable
 {
     public function __construct(KConfig $config) 
 	{
